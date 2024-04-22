@@ -1,8 +1,19 @@
 # calls the other modules and runs the UCC make compiler
+import hashlib
 from compiler.base import *
 import json
 
 dryrun = False
+
+def merge_dicts(base, priority):
+    merged = base.copy()
+    for p in priority:
+        if isinstance(base[p], dict):
+            merged[p] = merge_dicts(base[p], priority[p])
+        else:
+            merged[p] = priority[p]
+    return merged
+
 
 def run(args):
     if args.verbose:
@@ -21,12 +32,7 @@ def run(args):
         appendException(e, '\n\nERROR: You need to copy compiler_settings.example.json to compiler_settings.json and adjust the paths.')
         raise
 
-    merged = default_settings
-    for p in settings:
-        if p not in merged:
-            merged[p] = {}
-        merged[p] = {**merged[p], **settings[p]}
-
+    merged = merge_dicts(default_settings, settings)
 
     profiles = []
     if argprofiles == 'all':
@@ -116,6 +122,12 @@ def compile(args, settings):
             except Exception as e:
                 appendException(e, "error processing vanilla file: "+file)
                 raise
+        assert len(orig_files) > 100, 'found original code files in source_path'
+        for hashcheck in settings.get('hash_checks', []):
+            c = hashcheck['class']
+            hash = MD5(orig_files[c].content)
+            expected = hashcheck['expected']
+            assert hash == expected, 'MD5 of ' + c + ' is ' + hash + ', expected ' + expected
         # helps with unreal-map-flipper
         # a = reader.GetSubclasses('Decoration')
         # for c in a:
@@ -135,6 +147,7 @@ def compile(args, settings):
             except Exception as e:
                 appendException(e, "error processing mod file: "+file)
                 raise
+        assert len(mods_files[-1]) > 10, 'found code files in '+mod
 
     notice("\nwriting source files...")
     writer.before_write(orig_files, injects)
@@ -217,3 +230,9 @@ def file_is_blacklisted(file, settings):
             return True
     return False
 
+def MD5(data) -> str:
+    if isinstance(data, str):
+        data = data.encode('utf-8')
+    ret = hashlib.md5(data).hexdigest()
+    debug("MD5 of " + str(len(data)) + " bytes is " + ret)
+    return ret
